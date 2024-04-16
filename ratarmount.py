@@ -915,9 +915,9 @@ def checkInputFileType(
                 return tarFile, compression
 
             if printDebug >= 2:
-                print(f"Archive '{tarFile}' (compression: {compression}) can't be opened!")
+                print(f"Archive '{tarFile}' (compression: {compression}) cannot be opened!")
 
-            raise argparse.ArgumentTypeError(f"Archive '{tarFile}' can't be opened!")
+            raise argparse.ArgumentTypeError(f"Archive '{tarFile}' cannot be opened!")
 
     if not findAvailableOpen(compression):
         moduleNames = [module.name for module in supportedCompressions[compression].modules]
@@ -1804,7 +1804,7 @@ def cli(rawArgs: Optional[List[str]] = None) -> None:
             operations=fuseOperationsObject,
             mountpoint=args.mount_point,
             foreground=args.foreground,
-            nothreads=True,  # Can't access SQLite database connection object from multiple threads
+            nothreads=True,  # Cannot access SQLite database connection object from multiple threads
             **fusekwargs,
         )
     except RuntimeError as exception:
