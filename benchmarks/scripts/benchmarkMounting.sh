@@ -10,6 +10,40 @@ set -e
 echoerr() { echo "$@" 1>&2; }
 
 
+export PATH=$PWD:$PATH
+
+cat <<"EOF" > dissect
+    target-mount -o modules=subdir,subdir=fs "$@"
+EOF
+chmod u+x dissect
+
+
+cat <<"EOF" > fsspec
+#!/usr/bin/bash
+echo "BASH args: $@"
+nohup python3 -c '
+import sys
+print("Args:", sys.argv)
+from fsspec.implementations.tar import TarFileSystem as tafs
+fs = tafs(sys.argv[1])
+print(f"Mount {sys.argv[1]} at {sys.argv[2]}")
+import fsspec.fuse
+fsspec.fuse.run(fs, "./", sys.argv[2])
+' "$@" &> fsspec.log &
+
+mountFolder=${@: -1}
+while true; do
+    if mountpoint -q "$mountFolder"; then
+        break
+    fi
+    sleep 0.01
+done # throw error after timeout?
+
+ls -la "$mountFolder" &>/dev/null  # Should effectively wait until the mount point is available
+EOF
+chmod u+x fsspec
+
+
 # Kinda obsolete parallelized bash version
 # For 1MiB frames, the frequent process spawning for dd and and zstd cost the most of the time!
 # Therefore, use a process pool in python to fix that speed issue.
@@ -131,7 +165,8 @@ function benchmarkCommand()
                 break
             fi
             sleep 1s
-            echoerr "Waiting for mountpoint"
+            fusermount -u "$mountPoint"
+            echoerr "Waiting for mountpoint to finish"
         done # throw error after timeout?
         rss=$( cat -- "$tmpFile" | sed -r 's|.* s ([0-9]+) kiB.*|\1|' )
         rm "$tmpFile"
@@ -219,7 +254,10 @@ function createLargeTar()
     tarFile="tar-with-$nFolders-folders-with-$nFilesPerFolder-files-${nBytesPerFile}B-files.tar"
     # Transform and remove leading dot because fuse-archive had problems with that
     # https://github.com/google/fuse-archive/issues/2
-    benchmarkCommand tar --hard-dereference --dereference --sort=name -c --transform='s|^[.]/||' -C "$tarFolder" -f "$tarFile" --owner=user --group=group .
+    # This is fixed now. And NOW fsspec requires the leading dot for fsspec.fuse to work...
+    # https://github.com/fsspec/filesystem_spec/issues/1568
+    benchmarkCommand tar --hard-dereference --dereference --sort=name -c -C "$tarFolder" -f "$tarFile" \
+        --owner=user --group=group .
     'rm' -rf -- "$tarFolder"
 }
 
@@ -236,7 +274,7 @@ function benchmark()
             break
         fi
         sleep 1s
-        echoerr "Waiting for mountpoint"
+        echoerr "Waiting for mountpoint to appear"
     done # throw error after timeout?
 
     if [[ $nFolders == 1 ]]; then
@@ -356,7 +394,12 @@ for compression in '' '.bz2' '.gz' '.xz' '.zst'; do
     done
 
     if [[ $extendedBenchmarks -eq 1 ]]; then
-        for cmd in archivemount fuse-archive; do
+        # These take DAYS. So, only run these when the benchmark system changed or when there was an update to
+        # these tools, which currently looks unlikely.
+        #for cmd in archivemount fuse-archive; do
+        #    benchmark
+        #done
+        for cmd in fsspec dissect; do
             benchmark
         done
 
