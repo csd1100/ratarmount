@@ -48,7 +48,7 @@ def readLabelsFromFirstComment(fileName):
                 return line[1:].strip().split(' ')
 
 
-def loadData(fileName):
+def loadData(fileName, filteredFileSizes = None):
     """Returns a nested dict with keys in order of dimension: tool, command, compression"""
     labels = None
     data = {}
@@ -64,13 +64,16 @@ def loadData(fileName):
             else:
                 row = line.split(';')
 
-                tool = row[0].strip('"')
+                tool = row[labels.index('tool')].strip('"')
                 if tool not in data:
                     data[tool] = {}
 
+                if filteredFileSizes and int(row[labels.index('nBytesPerFile')]) in filteredFileSizes:
+                    continue
+
                 # Not interested in command arguments like cat <file>
                 # This assumed that all "tools" are devoid of spaces but now I added "ratarmount -P 24" as a "tool"
-                command = row[1].strip('"')
+                command = row[labels.index('command')].strip('"')
                 if command.startswith("ratarmount -P"):
                     command = ' '.join(command.split(' ')[:3])
                 else:
@@ -129,7 +132,8 @@ def plotBenchmark(labels, data, ax, command, metric, tools, scalingFactor=1):
         for j, compression in enumerate(compressions):
             values = data[tool][command][compression]
 
-            newFileSizes = np.sort(np.unique(values[labels.index("nBytesPerFile")]))
+            bytesPerFile = values[labels.index("nBytesPerFile")]
+            newFileSizes = np.sort(np.unique(bytesPerFile))
             if fileSizes is None:
                 fileSizes = newFileSizes
             else:
@@ -143,18 +147,18 @@ def plotBenchmark(labels, data, ax, command, metric, tools, scalingFactor=1):
             if metric == 'duration/s' and ax.get_yscale() == 'log':
                 metricValues[metricValues == 0.0] = 0.01
 
-            bytesPerFile = values[labels.index("nBytesPerFile")]
-
             for k, nBytesPerFile in enumerate(fileSizes):
                 iSorted = np.argsort(files)
                 iSelected = bytesPerFile[iSorted] == nBytesPerFile
 
                 x = files[iSorted][iSelected]
                 y = metricValues[iSorted][iSelected] * scalingFactor
+                xs = np.append(xs, x)
 
                 xu = np.sort(np.unique(x))
                 if len(xu) == len(x):
                     ax.plot(x, y, linestyle=lineStyles[j], color=colors[i], marker=markers[k], zorder=zorder)
+                    ys = np.append(ys, y)
                 else:
                     ymedian = np.array([np.median(y[x == xi]) for xi in xu])
                     ymean = np.array([np.mean(y[x == xi]) for xi in xu])
@@ -173,6 +177,7 @@ def plotBenchmark(labels, data, ax, command, metric, tools, scalingFactor=1):
                             zorder=zorder,
                         )
                         lines[-1][0].set_linestyle(lineStyles[j])
+                        ys = np.append(ymean, yToPlot)
                     else:
                         # ymedian? ymin? ymax? ymean?
                         yToPlot = ymax if command == 'mount' else ymedian
@@ -180,13 +185,11 @@ def plotBenchmark(labels, data, ax, command, metric, tools, scalingFactor=1):
                             xu, yToPlot, linestyle=lineStyles[j], color=colors[i], marker=markers[k], zorder=zorder
                         )
                         lines[0].set_linestyle(lineStyles[j])
-
-                xs = np.append(xs, x)
-                ys = np.append(ys, y)
+                        ys = np.append(ys, yToPlot)
 
     x = 10 ** np.linspace(np.log10(np.min(xs)), np.log10(np.max(xs)))
     y = x
-    y = 5 * y / y[-1] * np.max(ys)
+    y = 3 * y / y[-1] * np.max(ys)
     ax.plot(x[y > np.min(ys)], y[y > np.min(ys)], color='k', label="linear scaling")
 
     for i, tool in enumerate(tools):
@@ -205,7 +208,9 @@ def plotBenchmark(labels, data, ax, command, metric, tools, scalingFactor=1):
 
 
 def plotComparison(fileName):
-    labels, data = loadData(fileName)
+    global markers
+    markers = ['o', '+', '*', 'x']
+    labels, data = loadData(fileName, filteredFileSizes=[0])
 
     availableTools = data.keys()
     tools = [
@@ -239,16 +244,17 @@ def plotComparison(fileName):
 
     plotBenchmark(labels, data, ax, "mount", "duration/s", tools)
 
-    xmin = axisValueReduction(ax, 'x', np.nanmin, float('+inf'))
-    xmax = axisValueReduction(ax, 'x', np.nanmax, float('-inf'))
-    ymin = axisValueReduction(ax, 'y', np.nanmin, float('+inf'))
-    ymax = axisValueReduction(ax, 'y', np.nanmax, float('-inf'))
-    x = 10 ** np.linspace(np.log10(xmin), np.log10(xmax))
-    y = x**2
-    y = y / y[-1] * ymax / 2000
-    ax.plot(x[y > ymin], y[y > ymin], color='k', linestyle='--', label="quadratic scaling")
+    if False:
+        xmin = axisValueReduction(ax, 'x', np.nanmin, float('+inf'))
+        xmax = axisValueReduction(ax, 'x', np.nanmax, float('-inf'))
+        ymin = axisValueReduction(ax, 'y', np.nanmin, float('+inf'))
+        ymax = axisValueReduction(ax, 'y', np.nanmax, float('-inf'))
+        x = 10 ** np.linspace(np.log10(xmin), np.log10(xmax))
+        y = x**2
+        y = y / y[-1] * ymax / 2000
+        ax.plot(x[y > ymin], y[y > ymin], color='k', linestyle='--', label="quadratic scaling")
 
-    ax.legend([Line2D([], [], linestyle='--', color='k')], ['quadratic scaling'], loc='best')
+        ax.legend([Line2D([], [], linestyle='--', color='k')], ['quadratic scaling'], loc='best')
 
     ax = fig.add_subplot(
         223,
@@ -307,7 +313,7 @@ def plotRatarmountParallelComparison(fileName, compression):
     df = pd.read_csv(fileName, comment='#', sep=';', names=readLabelsFromFirstComment(fileName))
 
     if df.empty:
-        print(f"[Warning] Did not data for ratarmount tools.")
+        print(f"[Warning] Did not find data for ratarmount tools.")
         return False
 
     if compression == 'find':
@@ -345,8 +351,17 @@ def plotRatarmountParallelComparison(fileName, compression):
             sdf.loc[:, 'duration/s'].to_numpy(),
         )
 
-    for k, nBytesPerFile in enumerate(df.loc[:, 'nBytesPerFile'].unique()):
+    fileSizes = df.loc[:, 'nBytesPerFile'].unique()
+    if len(fileSizes) == 0:
+        print(f"[Warning] Did not find any file sizes for '{compression}'.")
+        return False
+
+    plottedSomething = False
+    for k, nBytesPerFile in enumerate(fileSizes):
         resultSerial = getDurationPerFileCount(df, 'ratarmount', nBytesPerFile)
+        if resultSerial is None:
+            resultSerial = getDurationPerFileCount(df, 'ratarmount -P 1', nBytesPerFile)
+
         resultParallel = getDurationPerFileCount(df, 'ratarmount -P 24', nBytesPerFile)
         if resultSerial is None or resultParallel is None:
             continue
@@ -369,6 +384,11 @@ def plotRatarmountParallelComparison(fileName, compression):
             marker=markers[k],
             label=f"{nBytesPerFile}B per file",
         )
+        plottedSomething = True
+
+    if not plottedSomething:
+        print(f"[Warning] Did not find anything to plot for file sizes '{fileSizes}'.")
+        return False
 
     ax.set_ylim([0, ax.get_ylim()[1]])
     ax.set_yticks(list(ax.get_yticks()) + [1])
@@ -384,8 +404,10 @@ def plotRatarmountParallelComparison(fileName, compression):
 
 
 def plotAccessLatency(fileName):
+    global markers
+    markers = ['o', '+', '*', 'x']
     fileName = dataFile
-    labels, data = loadData(fileName)
+    labels, data = loadData(fileName, filteredFileSizes=[0])
 
     availableTools = data.keys()
     tools = [
@@ -423,5 +445,7 @@ if __name__ == "__main__":
 
     plotAccessLatency(dataFile)
     plotComparison(dataFile)
+
+    markers = ['+', 'o', '*', 'x']
     for compression in ['', 'bz2', 'gz', 'xz', 'find']:
         plotRatarmountParallelComparison(dataFile, compression)
