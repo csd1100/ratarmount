@@ -21,7 +21,7 @@ jobs:
     - name: Install pip Dependencies
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install --user fusepy pytest
+        python3 -m pip install --user fusepy pytest lz4 PySquashfsImage
 
     - name: Style Check With Black
       run: |

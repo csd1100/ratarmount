@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# pylint: disable=protected-access, import-outside-toplevel
+# pylint: disable=protected-access, import-outside-toplevel, unused-argument
 
 import io
 import json
@@ -244,7 +244,7 @@ class SquashFSImage(PySquashfsImage.SquashFsImage):
     Contains several improvements over the base class:
      - Does not create the whole folder hierarchy in memory when only iterating over it to avoid high memory
        usage for SquashFS images with millions of files.
-     - Adds seekable, streamble file object accessor that can be opened given a single number.
+     - Adds seekable, streamable file object accessor that can be opened given a single number.
      - Adds thread locks around the underlying file object so that multiple file objects can be opened and used
        from multiple threads concurrently.
      - Uses libdeflate or ISA-L if installed, which a generally faster than the standard zlib.
